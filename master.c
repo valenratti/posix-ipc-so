@@ -7,6 +7,10 @@
 
 #define CANT_PROCESS 5
 
+#define READ 0
+#define WRITE 1
+
+
 int main(int argc, char* argv[]){
     if(argc != 2){
         printf("Error, debe pasar unicamente el path de la carpeta contenedora de los archivos\n");
@@ -38,25 +42,59 @@ int main(int argc, char* argv[]){
                 
             }
         }*/
-        int mypipe[CANT_PROCESS][2],i;
-        pid_t cpid[CANT_PROCESS];
-        for (i=0; i<CANT_PROCESS && cpid[i] != 0;i++){
-            pipe(mypipe[i]);
+        int mypipeSet[CANT_PROCESS][2],i;
+        int mypipeRead[CANT_PROCESS][2];
+        pid_t cpid[CANT_PROCESS] = {100};
+        for (i=0; i<CANT_PROCESS ;i++){
+            pipe(mypipeSet[i]);
+            pipe(mypipeRead[i]);
             cpid[i]=fork();
             if(cpid[i] == -1){
                 perror("fork");
                 exit(EXIT_FAILURE);
             }
             if(cpid[i]==0){
-                printf("Soy el proceso hijo. Mi PID es %d.\n", getpid());
+                close(mypipeSet[i][WRITE]);
+                close(mypipeRead[i][READ]);
+                dup2(mypipeSet[i][READ], STDIN_FILENO);
+                dup2(mypipeRead[i][WRITE], STDOUT_FILENO);
+
                 char *args[] = {"./slave",NULL};
                 execvp(args[0], args);
                 exit(1);//no deberia retornar              
             }
+            else{
+                close(mypipeSet[i][READ]);
+            }
+        }
+        
+
+        
+
+        char *string = "Hola\n";
+
+        for (i=0; i<CANT_PROCESS ;i++){
+            write(mypipeSet[i][WRITE], string, 5);
         }
 
-        while((entry = readdir(current)) != NULL){
-            
+        /*char *line = NULL;
+        size_t linecap = 0;
+        ssize_t linelen;
+
+        for(i=0; i<CANT_PROCESS; i++){
+            FILE* fp = fdopen(mypipeRead[i][READ], "r");
+            linelen = getline(&line, &linecap, fp);
+            fwrite(line, linelen, 1, stdout);
+        }*/
+        
+
+        int status;
+        for (i=0; i<CANT_PROCESS;i++){
+            close(mypipeSet[i][WRITE]);
+            close(mypipeRead[i][READ]);
+            //waitpid(cpid[i], &status, 0);
         }
     }
+    
+        return 0;
 }
