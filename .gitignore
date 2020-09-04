@@ -1,0 +1,6 @@
+#Ignore CNF files
+*.cnf
+
+#Ignore executable files
+master
+slave
