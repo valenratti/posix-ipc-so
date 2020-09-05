@@ -4,77 +4,45 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <dirent.h>
+#include <string.h>
 
 #define CANT_PROCESS 5
 
 #define READ 0
 #define WRITE 1
 
-
 int main(int argc, char* argv[]){
-    if(argc != 2){
+    if(argc <= 1){
         printf("Error, debe pasar unicamente el path de la carpeta contenedora de los archivos\n");
         exit(1);
     }
-    DIR *current = opendir(argv[1]);
-    if (current == NULL)
-    {
-        printf("Can't find the directory!\n");
-        exit(1);
-    }else{
-        struct dirent *entry;
-        /*while ((entry = readdir(current)) != NULL)
-        {
-            if (entry->d_type == DT_DIR)
-            {
-                if (strcmp(entry->d_name, ".") != 0 && strcmp(entry->d_name, "..")!=0)
-                {
-                    printf("d");
-                    printTabs(level);
-                    printf("%s\n", entry->d_name);
-                    char path[1024];
-                    snprintf(path, sizeof path, "%s/%s", dir_name, entry->d_name);
-                    listRec(path, level + 1);
-                }
-            }
-            else
-            {
-                
-            }
-        }*/
-        int mypipeSet[CANT_PROCESS][2],i;
-        int mypipeRead[CANT_PROCESS][2];
-        pid_t cpid[CANT_PROCESS] = {100};
-        for (i=0; i<CANT_PROCESS ;i++){
-            pipe(mypipeSet[i]);
-            pipe(mypipeRead[i]);
-            cpid[i]=fork();
-            if(cpid[i] == -1){
-                perror("fork");
-                exit(EXIT_FAILURE);
-            }
-            if(cpid[i]==0){
-                close(mypipeSet[i][WRITE]);
-                close(mypipeRead[i][READ]);
-                dup2(mypipeSet[i][READ], STDIN_FILENO);
-                dup2(mypipeRead[i][WRITE], STDOUT_FILENO);
-
-                char *args[] = {"./slave",NULL};
-                execvp(args[0], args);
-                exit(1);//no deberia retornar              
-            }
-            else{
-                close(mypipeSet[i][READ]);
-            }
+    int pipeMW[CANT_PROCESS][2],i; //pipeMW - Master Writes
+    int pipeMR[CANT_PROCESS][2]; //pipeMR - Master Reads
+    pid_t cpid[CANT_PROCESS] = {100};
+    for (i=0; i<CANT_PROCESS ;i++){
+        pipe(pipeMW[i]);
+        pipe(pipeMR[i]);
+        cpid[i]=fork();
+        if(cpid[i] == -1){
+            perror("fork");
+            exit(EXIT_FAILURE);
         }
-        
+        if(cpid[i]==0){
+            close(pipeMW[i][WRITE]);
+            close(pipeMR[i][READ]);
+            dup2(pipeMW[i][READ], STDIN_FILENO); //El esclavo le llega por estandar input lo que escriben en el FD
+            //dup2(pipeMR[i][WRITE], STDOUT_FILENO); //Salida estandar del esclavo se redirecciona al FD
+            char *args[] = {"./slave",NULL};
+            execvp(args[0], args);
+            exit(1);//no deberia retornar              
+        }
+        else{
+            close(pipeMW[i][READ]);
+        }
+    }
 
-        
-
-        char *string = "Hola\n";
-
-        for (i=0; i<CANT_PROCESS ;i++){
-            write(mypipeSet[i][WRITE], string, 5);
+        for (i=0; i<CANT_PROCESS && i<argc-1 ;i++){
+            write(pipeMW[i][WRITE], argv[i+1], strlen(argv[i+1]));
         }
 
         /*char *line = NULL;
@@ -82,7 +50,7 @@ int main(int argc, char* argv[]){
         ssize_t linelen;
 
         for(i=0; i<CANT_PROCESS; i++){
-            FILE* fp = fdopen(mypipeRead[i][READ], "r");
+            FILE* fp = fdopen(pipeMR[i][READ], "r");
             linelen = getline(&line, &linecap, fp);
             fwrite(line, linelen, 1, stdout);
         }*/
@@ -90,11 +58,9 @@ int main(int argc, char* argv[]){
 
         int status;
         for (i=0; i<CANT_PROCESS;i++){
-            close(mypipeSet[i][WRITE]);
-            close(mypipeRead[i][READ]);
+            close(pipeMW[i][WRITE]);
+            close(pipeMR[i][READ]);
             //waitpid(cpid[i], &status, 0);
         }
-    }
-    
         return 0;
 }

@@ -33,6 +33,7 @@ void miniGrep(char *filename) {
   char output[1024] = {}, msg[1024] = {}, cmd[1024] = {};
 
   sprintf(cmd, "minisat %s | grep -o -e \"Number of .*[0-9]\\+\" -e \"CPU time.*\" -e \".*SATISFIABLE\"", filename);
+  //printf("%s", cmd);
   stream = popen(cmd, "r");
   if (stream == NULL) {
     printf("popen minisat\n");
