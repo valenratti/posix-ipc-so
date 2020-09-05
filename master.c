@@ -14,7 +14,8 @@
 
 int main(int argc, char* argv[]){
 
-    int cant_cnf = argc;
+    int cant_cnf_asig = argc;
+    int cant_cnf_unsol = argc;
     if(argc <= 1){
         printf("Error, debe pasar unicamente el path de la carpeta contenedora de los archivos\n");
         exit(1);
@@ -30,9 +31,9 @@ int main(int argc, char* argv[]){
     fd_set readfds, writefds;
     FD_ZERO(&readfds);
     FD_ZERO(&writefds);
-    /*struct timeval tv;
+    struct timeval tv;
     tv.tv_sec = 2;
-    tv.tv_usec = 500000;*/
+    tv.tv_usec = 500000;
     int max_fd = 0;
 
 
@@ -48,14 +49,14 @@ int main(int argc, char* argv[]){
             close(pipeMW[i][WRITE]);
             close(pipeMR[i][READ]);
             dup2(pipeMW[i][READ], STDIN_FILENO); //El esclavo le llega por estandar input lo que escriben en el FD
-            dup2(pipeMR[i][WRITE], STDOUT_FILENO); //Salida estandar del esclavo se redirecciona al FD
+            //dup2(pipeMR[i][WRITE], STDOUT_FILENO); //Salida estandar del esclavo se redirecciona al FD
             char *args[] = {"./slave",NULL};
             execvp(args[0], args);
             exit(1);//no deberia retornar              
         }
         else{
             close(pipeMW[i][READ]);
-            if(pipeMW[i][READ] > max_fd)
+            if(pipeMR[i][READ] > max_fd)
                 max_fd = pipeMW[i][READ];
             FD_SET(pipeMR[i][READ], &readfds);
         }
@@ -65,38 +66,35 @@ int main(int argc, char* argv[]){
 
         //Asignacion de 5 queries a cada esclavo
         int c;
-        for (i=0; i<CANT_PROCESS && cant_cnf>0 ;i++){
-                    printf("i = %d \n", i);
-            for(c=0; c<5 && cant_cnf>0 ; c++){
-                printf("%s\n", argv[argc-cant_cnf+1]);
-                printf("llego aca en ");
-                write(pipeMW[i][WRITE], argv[argc-cant_cnf+1], strlen(argv[argc-cant_cnf+1]));
-                printf("i=%d, c=%d \n", i, c);
-                cant_cnf--;
+        for (i=0; i<CANT_PROCESS && cant_cnf_asig>1 ;i++){
+            for(c=0; c<5 && cant_cnf_asig>1 ; c++){
+                printf("%s\n", argv[argc-cant_cnf_asig+1]);
+                write(pipeMW[i][WRITE], argv[argc-cant_cnf_asig+1], strlen(argv[argc-cant_cnf_asig+1]));
+                cant_cnf_asig--;
             }
         }
                 
-        printf("llego aca\n");
-
         int k, l;
         char line[100];
         size_t linecap = 0;
         ssize_t linelen;
-        while(cant_cnf > 0){
-            select(max_fd+1, &readfds, NULL, NULL, NULL);
 
+        while(cant_cnf_unsol > 1){
+            printf("sigo aca pa\n");
+            select(max_fd+1, &readfds, NULL, NULL, &tv);
             for(k=0; k<CANT_PROCESS; k++){
                 if(FD_ISSET(pipeMR[k][READ], &readfds)){
-
+                    printf("HABIA ALGO PARA LEER");
                     for(l=0; l<6; l++){
                         linelen = read(pipeMR[k][READ], &line, 100);
                         printf("%s", line);
                         //Donde mandamos lo leido?
+                        cant_cnf_unsol--;
                     }
                     solved_queries[k]++;
                     if(solved_queries[k]>=5){
                     write(pipeMW[k][WRITE], argv[argc], strlen(argv[argc])); 
-                    cant_cnf--;
+                    cant_cnf_asig--;
                     }
 
                     FD_SET(pipeMR[k][READ],&readfds);
