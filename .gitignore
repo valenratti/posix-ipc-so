@@ -4,3 +4,6 @@
 #Ignore executable files
 master
 slave
+
+#Ignore VSCode files
+.vscode/
