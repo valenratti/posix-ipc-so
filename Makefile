@@ -13,6 +13,6 @@ slave: slave.c
 vista: vista.c
 	$(CC) vista.c -o vista $(CC_args) $(CC_args_IPC)
 clean:
-	rm -f master slave
+	rm -f master slave vista
 
 .PHONY: all clean

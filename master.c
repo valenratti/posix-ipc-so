@@ -34,18 +34,19 @@ int main(int argc, char *argv[]) {
   /* create the shared memory segment as if it was a file */
   int shm_fd = shm_open(shm_name, O_CREAT | O_RDWR, 0666);
   if (shm_fd == -1) {
-    perror("shm_open: No se pudo abrir la shared memory");
+    perror("master: shm_open: No se pudo abrir la shared memory");
     exit(EXIT_FAILURE);
   }
-
   /* map the shared memory segment to the address space of the process */
-  buffer *shm_ptr = mmap(0, sizeof(buffer) * MAX_FILES, PROT_READ, MAP_SHARED, shm_fd, 0);
+  buffer *shm_ptr = mmap(0, sizeof(buffer) * MAX_FILES, PROT_READ | PROT_WRITE, MAP_SHARED, shm_fd, 0);
   if (shm_ptr == MAP_FAILED) {
     perror("mmap: No se pudo mapear la shared memory");
     close(shm_fd);
     shm_unlink(shm_name);
     exit(EXIT_FAILURE);
   }
+
+  ftruncate(shm_fd, sizeof(buffer) * MAX_FILES);
 
   const char *sem_nameA = "/sem-entry";  //Para entrar a la zona critica
   const char *sem_nameB = "/sem-read";   //Para que vista sepa si hay para leer
@@ -60,6 +61,9 @@ int main(int argc, char *argv[]) {
     printf("Failed to create the semaphore full. Exiting...\n");
     exit(1);
   }
+  printf("%s %s %s", shm_name, sem_nameA, sem_nameB);
+  fflush(stdout);
+  sleep(2);  //espero al vista
 
   /*Variables for pipes*/
   int pipeMW[CANT_PROCESS][2];  //pipeMW - Master Writes
@@ -112,15 +116,13 @@ int main(int argc, char *argv[]) {
 
   int k;
   char line[100];
-  size_t linecap = 0;
-  ssize_t linelen;
   int current = 0;
   while (cant_cnf_unsol > 0) {
     select(max_fd + 1, &readfds, NULL, NULL, NULL);
 
     for (k = 0; k < CANT_PROCESS && cant_cnf_unsol > 0; k++) {  //unsolve = argc - 1 - asignated
       if (FD_ISSET(pipeMR[k][READ], &readfds)) {
-        linelen = read(pipeMR[k][READ], &line, 256);
+        read(pipeMR[k][READ], &line, 256);
         sem_wait(sem_entry);
         strncpy((shm_ptr + current++)->arr, line, strlen(line));
         sem_post(sem_read);
@@ -144,7 +146,11 @@ int main(int argc, char *argv[]) {
     for (i = 0; i < CANT_PROCESS; i++)
       FD_SET(pipeMR[i][READ], &readfds);
   }
-
+  sem_wait(sem_entry);
+  strncpy((shm_ptr + current++)->arr, "*", 1);
+  sem_post(sem_read);
+  sem_post(sem_entry);
+  sleep(1);
   int status;
   for (i = 0; i < CANT_PROCESS; i++) {
     close(pipeMW[i][WRITE]);
