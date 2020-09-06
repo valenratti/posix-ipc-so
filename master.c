@@ -1,23 +1,63 @@
-#include <dirent.h>
+#include <fcntl.h> /* For O_* constants */
+#include <semaphore.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/mman.h>
 #include <sys/select.h>
+#include <sys/stat.h> /* For mode constants */
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <unistd.h>
 
 #define CANT_PROCESS 3
 #define INITIAL_FILES 3
+#define MAX_FILES 100
 
 #define READ 0
 #define WRITE 1
 
-int main(int argc, char* argv[]) {
+typedef struct buffer {
+  char arr[256 * 6];
+} buffer;
+
+int main(int argc, char *argv[]) {
   int cant_cnf_asig, i, c;
   int cant_cnf_unsol = argc - 1;
+
   if (argc <= 1) {
     printf("Error, debe pasar unicamente el path de la carpeta contenedora de los archivos\n");
+    exit(1);
+  }
+
+  const char *shm_name = "/buffer";  // file name
+  /* create the shared memory segment as if it was a file */
+  int shm_fd = shm_open(shm_name, O_CREAT | O_RDWR, 0666);
+  if (shm_fd == -1) {
+    perror("shm_open: No se pudo abrir la shared memory");
+    exit(EXIT_FAILURE);
+  }
+
+  /* map the shared memory segment to the address space of the process */
+  buffer *shm_ptr = mmap(0, sizeof(buffer) * MAX_FILES, PROT_READ, MAP_SHARED, shm_fd, 0);
+  if (shm_ptr == MAP_FAILED) {
+    perror("mmap: No se pudo mapear la shared memory");
+    close(shm_fd);
+    shm_unlink(shm_name);
+    exit(EXIT_FAILURE);
+  }
+
+  const char *sem_nameA = "/sem-entry";  //Para entrar a la zona critica
+  const char *sem_nameB = "/sem-read";   //Para que vista sepa si hay para leer
+  // nombre, crear y que no exista,permisos de RWX,valor iniical del sem
+  sem_t *sem_entry = sem_open(sem_nameA, O_CREAT | O_EXCL, S_IRUSR | S_IWUSR, 1);
+  if (sem_entry == SEM_FAILED) {
+    printf("Failed to create the semaphore empty. Exiting...\n");
+    exit(1);
+  }
+  sem_t *sem_read = sem_open(sem_nameB, O_CREAT | O_EXCL, S_IRUSR | S_IWUSR, 0);
+  if (sem_read == SEM_FAILED) {
+    printf("Failed to create the semaphore full. Exiting...\n");
     exit(1);
   }
 
@@ -47,9 +87,7 @@ int main(int argc, char* argv[]) {
       close(pipeMR[i][READ]);
       dup2(pipeMW[i][READ], STDIN_FILENO);    //El esclavo le llega por estandar input lo que escriben en el FD
       dup2(pipeMR[i][WRITE], STDOUT_FILENO);  //Salida estandar del esclavo se redirecciona al FD
-      close(pipeMW[i][READ]);
-      close(pipeMR[i][WRITE]);
-      char* args[] = {"./slave", NULL};
+      char *args[] = {"./slave", NULL};
       execvp(args[0], args);
       perror("exec");
       exit(EXIT_FAILURE);
@@ -76,14 +114,18 @@ int main(int argc, char* argv[]) {
   char line[100];
   size_t linecap = 0;
   ssize_t linelen;
-
+  int current = 0;
   while (cant_cnf_unsol > 0) {
     select(max_fd + 1, &readfds, NULL, NULL, NULL);
 
     for (k = 0; k < CANT_PROCESS && cant_cnf_unsol > 0; k++) {  //unsolve = argc - 1 - asignated
       if (FD_ISSET(pipeMR[k][READ], &readfds)) {
         linelen = read(pipeMR[k][READ], &line, 256);
-        printf("%s\n", line);
+        sem_wait(sem_entry);
+        strncpy((shm_ptr + current++)->arr, line, strlen(line));
+        sem_post(sem_read);
+        sem_post(sem_entry);
+        //printf("%s\n", line);
         //Donde mandamos lo leido?
         cant_cnf_unsol--;
         solved_queries[k]++;
@@ -111,5 +153,35 @@ int main(int argc, char* argv[]) {
   for (i = 0; i < CANT_PROCESS; i++)
     waitpid(cpid[i], &status, 0);
 
+  if (sem_close(sem_entry) < 0) {
+    printf("Error closing semaphore. Exiting...\n");
+    exit(EXIT_FAILURE);
+  }
+
+  if (sem_close(sem_read) < 0) {
+    printf("Error closing semaphore. Exiting...\n");
+    exit(EXIT_FAILURE);
+  }
+  sem_unlink(sem_nameA);
+  sem_unlink(sem_nameB);
+  /* remove the mapped shared memory segment from the address space of the process */
+  if (munmap(shm_ptr, sizeof(buffer) * MAX_FILES) == -1) {
+    perror("munmap: No se pudo desmapear la shared memory");
+    close(shm_fd);
+    shm_unlink(shm_name);
+    exit(EXIT_FAILURE);
+  }
+
+  /* close the shared memory segment as if it was a file */
+  if (close(shm_fd) == -1) {
+    perror("close: No se pudo cerrar el FD de la SM");
+    shm_unlink(shm_name);
+    exit(EXIT_FAILURE);
+  }
+  // remove the shared memory segment from the file system
+  if (shm_unlink(shm_name) == -1) {
+    perror("shm_unlink: No se pudo cerrar la shared memory");
+    exit(EXIT_FAILURE);
+  }
   return 0;
 }
