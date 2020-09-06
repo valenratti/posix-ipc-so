@@ -5,11 +5,13 @@
 #include <sys/mman.h>
 #include <sys/stat.h> /* For mode constants */
 
-struct buf_msg {
-  char buf[6][256];
-};
+#define MAX_FILES 100
 
-int main(int argc, char *argv[]) {
+typedef struct buffer {
+  char arr[256 * 6];
+} buffer;
+
+int main(int argc, char* argv[]) {
   char shm_name[15];
 
   if (argc > 1) {
@@ -26,7 +28,7 @@ int main(int argc, char *argv[]) {
   }
 
   /* map the shared memory segment to the address space of the process */
-  struct buf_msg *shm_ptr = mmap(0, sizeof(struct buf_msg), PROT_READ, MAP_SHARED, shm_fd, 0);
+  buffer* shm_ptr = mmap(0, sizeof(buffer) * MAX_FILES, PROT_READ, MAP_SHARED, shm_fd, 0);
   if (shm_ptr == MAP_FAILED) {
     perror("mmap: No se pudo mapear la shared memory");
     close(shm_fd);
@@ -39,7 +41,7 @@ int main(int argc, char *argv[]) {
   */
 
   /* remove the mapped shared memory segment from the address space of the process */
-  if (munmap(shm_ptr, sizeof(struct buf_msg)) == -1) {
+  if (munmap(shm_ptr, sizeof(buffer) * MAX_FILES) == -1) {
     perror("munmap: No se pudo desmapear la shared memory");
     close(shm_fd);
     shm_unlink(shm_name);
@@ -50,13 +52,6 @@ int main(int argc, char *argv[]) {
   if (close(shm_fd) == -1) {
     perror("close: No se pudo cerrar el FD de la SM");
     shm_unlink(shm_name);
-    exit(EXIT_FAILURE);
-  }
-
-  //Ver si lo hace el vista o aplicacion
-  /* remove the shared memory segment from the file system */
-  if (shm_unlink(shm_name) == -1) {
-    perror("shm_unlink: No se pudo cerrar la shared memory");
     exit(EXIT_FAILURE);
   }
 
