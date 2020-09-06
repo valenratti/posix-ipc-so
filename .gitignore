@@ -4,6 +4,7 @@
 #Ignore executable files
 master
 slave
+vista
 
 #Ignore VSCode files
 .vscode/
