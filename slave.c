@@ -21,7 +21,6 @@ int main(void) {
     }
     miniGrep(line, pid_msg);
   }
-
   exit(EXIT_SUCCESS);
 }
 

@@ -47,6 +47,8 @@ int main(int argc, char* argv[]) {
       close(pipeMR[i][READ]);
       dup2(pipeMW[i][READ], STDIN_FILENO);    //El esclavo le llega por estandar input lo que escriben en el FD
       dup2(pipeMR[i][WRITE], STDOUT_FILENO);  //Salida estandar del esclavo se redirecciona al FD
+      close(pipeMW[i][READ]);
+      close(pipeMR[i][WRITE]);
       char* args[] = {"./slave", NULL};
       execvp(args[0], args);
       perror("exec");
@@ -89,8 +91,7 @@ int main(int argc, char* argv[]) {
           char aux[100] = {};
           strcpy(aux, argv[cant_cnf_asig + 1]);
           strcat(aux, "\n");
-          printf("%s este\n", aux);
-          if (write(pipeMW[i][WRITE], aux, strlen(aux)) == -1) {
+          if (write(pipeMW[k][WRITE], aux, strlen(aux)) == -1) {
             printf("Error write\n");
             exit(EXIT_FAILURE);
           }
@@ -106,7 +107,9 @@ int main(int argc, char* argv[]) {
   for (i = 0; i < CANT_PROCESS; i++) {
     close(pipeMW[i][WRITE]);
     close(pipeMR[i][READ]);
-    //waitpid(cpid[i], &status, 0);
   }
+  for (i = 0; i < CANT_PROCESS; i++)
+    waitpid(cpid[i], &status, 0);
+
   return 0;
 }
