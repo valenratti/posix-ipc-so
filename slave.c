@@ -7,33 +7,29 @@
 #define READ 0
 #define WRITE 1
 
-void miniGrep(char *filename);
+void miniGrep(char *filename, char *pid);
 
-int main(int argc, char *argv[]) {
-  int cant;
-  char *line = NULL;
+int main(void) {
+  char *line = NULL, pid_msg[15];
   size_t linecap = 0;
   ssize_t linelen;
 
-  for (cant = 1; cant < argc; cant++)
-    miniGrep(argv[cant]);
-
+  sprintf(pid_msg, "PID:\t%d\n", getpid());
   while ((linelen = getline(&line, &linecap, stdin)) > 0) {
     if (line[linelen - 1] == '\n') {
       line[linelen - 1] = '\0';
     }
-    miniGrep(line);
+    miniGrep(line, pid_msg);
   }
 
   exit(EXIT_SUCCESS);
 }
 
-void miniGrep(char *filename) {
+void miniGrep(char *filename, char *pid) {
   FILE *stream;
   char output[1024] = {}, msg[1024] = {}, cmd[1024] = {};
 
   sprintf(cmd, "minisat %s | grep -o -e \"Number of .*[0-9]\\+\" -e \"CPU time.*\" -e \".*SATISFIABLE\"", filename);
-  //printf("%s", cmd);
   stream = popen(cmd, "r");
   if (stream == NULL) {
     printf("popen minisat\n");
@@ -43,7 +39,8 @@ void miniGrep(char *filename) {
   while (fgets(output, 1024, (FILE *)stream) != NULL) {
     strcat(msg, output);
   }
-  printf("%s", msg);
-  printf("PID:\t%d\n", getpid());
   pclose(stream);
+  strcat(msg, pid);
+  printf("%s", msg);
+  fflush(stdout);
 }
