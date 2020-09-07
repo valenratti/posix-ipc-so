@@ -63,7 +63,7 @@ int main(int argc, char *argv[]) {
   const char *sem_nameA = "/sem-entry";  //Para entrar a la zona critica
   const char *sem_nameB = "/sem-read";   //Para que vista sepa si hay para leer
 
-  // nombre, crear y que no exista,permisos de RWX,valor iniical del sem
+  // nombre, crear y que no exista, permisos de RWX, valor iniical del sem
   sem_t *sem_entry = sem_open(sem_nameA, O_CREAT | O_EXCL, S_IRUSR | S_IWUSR, 1);
   if (sem_entry == SEM_FAILED) {
     printf("Failed to create the semaphore empty. Exiting...\n");
@@ -77,7 +77,7 @@ int main(int argc, char *argv[]) {
 
   printf("%s %s %s", shm_name, sem_nameA, sem_nameB);
   fflush(stdout);
-  sleep(2);  //espero al vista
+  sleep(2);  //waiting for vista
 
   /*Variables for pipes*/
   int pipeMW[CANT_PROCESS][2];  //pipeMW - Master Writes
@@ -118,7 +118,7 @@ int main(int argc, char *argv[]) {
     }
   }
 
-  //Asignacion de INITIAL_FILES queries a cada esclavo
+  /*Asignation of INITIAL_FILES queries to each slave*/
   char aux[100] = {};
   for (i = 0, cant_cnf_asig = 0; i < CANT_PROCESS && cant_cnf_asig < argc - 1; i++)
     for (c = 0; c < INITIAL_FILES && cant_cnf_asig < argc - 1; c++, cant_cnf_asig++) {
@@ -151,34 +151,42 @@ int main(int argc, char *argv[]) {
 
         sem_wait(sem_entry);
         strncpy((shm_ptr + current++)->arr, line, cant_read);
+        
         if (write(output_fd, line, cant_read) == -1) {
           perror("master:Error write");
           failEndVista(shm_ptr, current, sem_entry, sem_read, shm_name, sem_nameA, sem_nameB);
           exit(EXIT_FAILURE);
         }
+
         sem_post(sem_read);
         sem_post(sem_entry);
         cant_cnf_unsol--;
         solved_queries[k]++;
+
         if (solved_queries[k] >= INITIAL_FILES && cant_cnf_asig < argc - 1) {
           char aux[100] = {};
+          
           if (strlen(argv[cant_cnf_asig + 1]) >= 100) {
             perror("Filename too long");
             failEndVista(shm_ptr, current, sem_entry, sem_read, shm_name, sem_nameA, sem_nameB);
             exit(EXIT_FAILURE);
           }
+
           strcpy(aux, argv[cant_cnf_asig + 1]);
           strcat(aux, "\n");
+          
           if (write(pipeMW[k][WRITE], aux, strlen(aux)) == -1) {
             perror("Error write");
             failEndVista(shm_ptr, current, sem_entry, sem_read, shm_name, sem_nameA, sem_nameB);
             exit(EXIT_FAILURE);
             exit(EXIT_FAILURE);
           }
+
           cant_cnf_asig++;
         }
       }
     }
+
     for (i = 0; i < CANT_PROCESS; i++)
       FD_SET(pipeMR[i][READ], &readfds);
   }
@@ -189,13 +197,13 @@ int main(int argc, char *argv[]) {
   sem_post(sem_read);
   sem_post(sem_entry);
   sleep(1);
-  int status;
 
   for (i = 0; i < CANT_PROCESS; i++) {
     close(pipeMW[i][WRITE]);
     close(pipeMR[i][READ]);
   }
 
+  int status;
   for (i = 0; i < CANT_PROCESS; i++)
     waitpid(cpid[i], &status, 0);
 
@@ -236,6 +244,7 @@ int main(int argc, char *argv[]) {
   return 0;
 }
 
+/*Function to make vista return and close semaphores and shared memory in case of error*/
 void failEndVista(buffer *shm_ptr, int current, sem_t *sem_entry, sem_t *sem_read, const char *shm_name, const char *semA, const char *semB) {
   sem_wait(sem_entry);
   strncpy((shm_ptr + current)->arr, "*", 1);

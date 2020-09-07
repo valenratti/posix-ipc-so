@@ -28,6 +28,7 @@ int main(int argc, char *argv[]) {
         exit(EXIT_FAILURE);
       }
     }
+
     sprintf(shm_name, "/%s", argv[1]);
     sprintf(sem_entry_name, "/%s", argv[2]);
     sprintf(sem_read_name, "/%s", argv[3]);
@@ -36,11 +37,13 @@ int main(int argc, char *argv[]) {
       perror("vista: Error en los nombres de SHM y SEM");
       exit(EXIT_FAILURE);
     }
+
     char tmp[3][15];
     char *token;
     int i;
     for (token = strtok(line, " "), i = 0; token != NULL; token = strtok(NULL, " "), i++)
       sprintf(tmp[i], "%s", token);
+
     sprintf(shm_name, "%s", tmp[0]);
     sprintf(sem_entry_name, "%s", tmp[1]);
     sprintf(sem_read_name, "%s", tmp[2]);
@@ -61,7 +64,7 @@ int main(int argc, char *argv[]) {
     exit(EXIT_FAILURE);
   }
 
-  // nombre, crear y que no exista,permisos de RWX,valor iniical del sem
+  // nombre, crear y que no exista, permisos de RWX,valor inicial del sem
   sem_t *sem_entry = sem_open(sem_entry_name, O_CREAT);
   if (sem_entry == SEM_FAILED) {
     printf("Failed to create the semaphore empty. Exiting...\n");
@@ -80,11 +83,13 @@ int main(int argc, char *argv[]) {
   while (finish_vista) {
     sem_wait(sem_read);
     sem_wait(sem_entry);
+    
     aux = (shm_ptr + current++)->arr;
     if (aux[0] == '*')
       finish_vista = 0;
     else
       printf("%s\n", aux);
+
     sem_post(sem_entry);
   }
 
