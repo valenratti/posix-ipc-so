@@ -69,14 +69,15 @@ int main(int argc, char *argv[]) {
     printf("Failed to create the semaphore full. Exiting...\n");
     exit(1);
   }
-  sleep(2);  //espero al vista
+
   printf("%s %s %s", shm_name, sem_nameA, sem_nameB);
   fflush(stdout);
+  sleep(5);  //espero al vista
 
   /*Variables for pipes*/
   int pipeMW[CANT_PROCESS][2];  //pipeMW - Master Writes
   int pipeMR[CANT_PROCESS][2];  //pipeMR - Master Reads
-  pid_t cpid[CANT_PROCESS] = {100};
+  pid_t cpid[CANT_PROCESS] = {0};
   int solved_queries[CANT_PROCESS] = {0};
 
   /*Variables for select*/
@@ -126,24 +127,27 @@ int main(int argc, char *argv[]) {
     }
 
   int k;
-  char line[100];
+  char line[255];
   int current = 0;
+  ssize_t cant_read;
   while (cant_cnf_unsol > 0) {
     select(max_fd + 1, &readfds, NULL, NULL, NULL);
 
     for (k = 0; k < CANT_PROCESS && cant_cnf_unsol > 0; k++) {  //unsolve = argc - 1 - asignated
       if (FD_ISSET(pipeMR[k][READ], &readfds)) {
-        read(pipeMR[k][READ], &line, 256);
+        cant_read = read(pipeMR[k][READ], &line, 255);
+        if (cant_read == -1) {
+          perror("vista: read");
+          exit(EXIT_FAILURE);
+        }
         sem_wait(sem_entry);
-        strncpy((shm_ptr + current++)->arr, line, strlen(line));
+        strncpy((shm_ptr + current++)->arr, line, cant_read);
         if (write(output_fd, line, strlen(line)) == -1) {
           printf("Error write\n");
           exit(EXIT_FAILURE);
         }
         sem_post(sem_read);
         sem_post(sem_entry);
-        //printf("%s\n", line);
-        //Donde mandamos lo leido?
         cant_cnf_unsol--;
         solved_queries[k]++;
         if (solved_queries[k] >= INITIAL_FILES && cant_cnf_asig < argc - 1) {

@@ -1,3 +1,5 @@
+// This is a personal academic project. Dear PVS-Studio, please check it.
+// PVS-Studio Static Code Analyzer for C, C++ and C#: http://www.viva64.com
 #include <fcntl.h> /* For O_* constants */
 #include <semaphore.h>
 #include <stdio.h>
@@ -8,40 +10,48 @@
 #include <unistd.h>
 
 #define MAX_FILES 100
+#define NAME_MAX 255
 
 typedef struct buffer {
   char arr[256 * 6];
 } buffer;
 
 int main(int argc, char *argv[]) {
-  char shm_name[15] = {}, sem_entry_name[15] = {}, sem_read_name[15] = {};
+  char shm_name[NAME_MAX] = {}, sem_entry_name[NAME_MAX] = {}, sem_read_name[NAME_MAX] = {};
 
   char *line = NULL;
   size_t linecap = 0;
   ssize_t linelen;
-  printf("%d\n", argc);
   if (argc > 1) {
+    int i;
+    for (i = 1; i < 4; i++) {
+      if (strlen(argv[i]) > NAME_MAX) {
+        perror("vista: los directorios de SHM o SEM no pueden tener mas de 255 carac.");
+        exit(EXIT_FAILURE);
+      }
+    }
     sprintf(shm_name, "/%s", argv[1]);
     sprintf(sem_entry_name, "/%s", argv[2]);
     sprintf(sem_read_name, "/%s", argv[3]);
   } else {
-    getline(&line, &linecap, stdin);
-    char tmp[3][15];
-    char *token;
-    int i;
-    for (token = strtok(line, " "), i = 0; token != NULL; token = strtok(NULL, " "), i++)
-      sprintf(tmp[i], "%s", token);
-    sprintf(shm_name, "%s", tmp[0]);
-    fflush(stdout);
-    sprintf(sem_entry_name, "%s", tmp[1]);
-    fflush(stdout);
-    sprintf(sem_read_name, "%s", tmp[2]);
-    fflush(stdout);
-    printf("%s", shm_name);
-    printf("%s", sem_entry_name);
-    printf("%s", sem_read_name);
-    fflush(stdout);
-    strcpy(shm_name, "/buffer");
+    if ((linelen = getline(&line, &linecap, stdin)) > 0) {
+      char tmp[3][15];
+      char *token;
+      int i;
+      for (token = strtok(line, " "), i = 0; token != NULL; token = strtok(NULL, " "), i++)
+        sprintf(tmp[i], "%s", token);
+      sprintf(shm_name, "%s", tmp[0]);
+      fflush(stdout);
+      sprintf(sem_entry_name, "%s", tmp[1]);
+      fflush(stdout);
+      sprintf(sem_read_name, "%s", tmp[2]);
+      fflush(stdout);
+      free(line);
+    } else {
+      perror("vista: getline:Error al recibir los parametros");
+      free(line);
+      exit(EXIT_FAILURE);
+    }
   }
 
   /* open the shared memory segment as if it was a file */
@@ -56,7 +66,6 @@ int main(int argc, char *argv[]) {
   if (shm_ptr == MAP_FAILED) {
     perror("mmap: No se pudo mapear la shared memory");
     close(shm_fd);
-    shm_unlink(shm_name);
     exit(EXIT_FAILURE);
   }
 
