@@ -1,3 +1,5 @@
+// This is a personal academic project. Dear PVS-Studio, please check it.
+// PVS-Studio Static Code Analyzer for C, C++ and C#: http://www.viva64.com
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -21,6 +23,7 @@ int main(void) {
     }
     miniGrep(line, pid_msg);
   }
+  free(line);
   exit(EXIT_SUCCESS);
 }
 

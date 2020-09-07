@@ -1,3 +1,5 @@
+// This is a personal academic project. Dear PVS-Studio, please check it.
+// PVS-Studio Static Code Analyzer for C, C++ and C#: http://www.viva64.com
 #include <fcntl.h> /* For O_* constants */
 #include <semaphore.h>
 #include <stdio.h>
@@ -28,6 +30,12 @@ int main(int argc, char *argv[]) {
   if (argc <= 1) {
     printf("Error, debe pasar unicamente el path de la carpeta contenedora de los archivos\n");
     exit(1);
+  }
+  char outputfile[] = "output.txt";
+  int output_fd = open(outputfile, O_CREAT | O_RDWR, S_IRWXU);
+  if (output_fd == -1) {
+    perror("master: No se pudo abrir el archivo");
+    exit(EXIT_FAILURE);
   }
 
   const char *shm_name = "/buffer";  // file name
@@ -61,15 +69,15 @@ int main(int argc, char *argv[]) {
     printf("Failed to create the semaphore full. Exiting...\n");
     exit(1);
   }
+  sleep(2);  //espero al vista
   printf("%s %s %s", shm_name, sem_nameA, sem_nameB);
   fflush(stdout);
-  sleep(2);  //espero al vista
 
   /*Variables for pipes*/
   int pipeMW[CANT_PROCESS][2];  //pipeMW - Master Writes
   int pipeMR[CANT_PROCESS][2];  //pipeMR - Master Reads
   pid_t cpid[CANT_PROCESS] = {100};
-  int solved_queries[CANT_PROCESS];
+  int solved_queries[CANT_PROCESS] = {0};
 
   /*Variables for select*/
   fd_set readfds, writefds;
@@ -105,10 +113,13 @@ int main(int argc, char *argv[]) {
   }
 
   //Asignacion de INITIAL_FILES queries a cada esclavo
-
+  char aux[100] = {};
   for (i = 0, cant_cnf_asig = 0; i < CANT_PROCESS && cant_cnf_asig < argc - 1; i++)
     for (c = 0; c < INITIAL_FILES && cant_cnf_asig < argc - 1; c++, cant_cnf_asig++) {
-      char aux[100] = {};
+      if (strlen(argv[cant_cnf_asig + 1]) >= 100) {
+        perror("Filename too long");
+        exit(EXIT_FAILURE);
+      }
       strcpy(aux, argv[cant_cnf_asig + 1]);
       strcat(aux, "\n");
       write(pipeMW[i][WRITE], aux, strlen(aux));
@@ -125,6 +136,10 @@ int main(int argc, char *argv[]) {
         read(pipeMR[k][READ], &line, 256);
         sem_wait(sem_entry);
         strncpy((shm_ptr + current++)->arr, line, strlen(line));
+        if (write(output_fd, line, strlen(line)) == -1) {
+          printf("Error write\n");
+          exit(EXIT_FAILURE);
+        }
         sem_post(sem_read);
         sem_post(sem_entry);
         //printf("%s\n", line);
@@ -146,6 +161,7 @@ int main(int argc, char *argv[]) {
     for (i = 0; i < CANT_PROCESS; i++)
       FD_SET(pipeMR[i][READ], &readfds);
   }
+  close(output_fd);
   sem_wait(sem_entry);
   strncpy((shm_ptr + current++)->arr, "*", 1);
   sem_post(sem_read);

@@ -8,3 +8,6 @@ vista
 
 #Ignore VSCode files
 .vscode/
+
+#Ignore ouput file
+output.txt

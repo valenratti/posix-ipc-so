@@ -13,6 +13,6 @@ slave: slave.c
 vista: vista.c
 	$(CC) vista.c -o vista $(CC_args) $(CC_args_IPC)
 clean:
-	rm -f master slave vista
+	rm -f master slave vista output.txt /dev/shm/* PVS-Studio.log report.tasks strace_out
 
 .PHONY: all clean
