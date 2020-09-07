@@ -23,6 +23,8 @@ typedef struct buffer {
   char arr[256 * 6];
 } buffer;
 
+void failEndVista(buffer *shm_ptr, int current, sem_t *sem_entry, sem_t *sem_read, const char *shm_name, const char *semA, const char *semB);
+
 int main(int argc, char *argv[]) {
   int cant_cnf_asig, i, c;
   int cant_cnf_unsol = argc - 1;
@@ -39,12 +41,14 @@ int main(int argc, char *argv[]) {
   }
 
   const char *shm_name = "/buffer";  // file name
+
   /* create the shared memory segment as if it was a file */
   int shm_fd = shm_open(shm_name, O_CREAT | O_RDWR, 0666);
   if (shm_fd == -1) {
     perror("master: shm_open: No se pudo abrir la shared memory");
     exit(EXIT_FAILURE);
   }
+
   /* map the shared memory segment to the address space of the process */
   buffer *shm_ptr = mmap(0, sizeof(buffer) * MAX_FILES, PROT_READ | PROT_WRITE, MAP_SHARED, shm_fd, 0);
   if (shm_ptr == MAP_FAILED) {
@@ -58,6 +62,7 @@ int main(int argc, char *argv[]) {
 
   const char *sem_nameA = "/sem-entry";  //Para entrar a la zona critica
   const char *sem_nameB = "/sem-read";   //Para que vista sepa si hay para leer
+
   // nombre, crear y que no exista,permisos de RWX,valor iniical del sem
   sem_t *sem_entry = sem_open(sem_nameA, O_CREAT | O_EXCL, S_IRUSR | S_IWUSR, 1);
   if (sem_entry == SEM_FAILED) {
@@ -72,7 +77,7 @@ int main(int argc, char *argv[]) {
 
   printf("%s %s %s", shm_name, sem_nameA, sem_nameB);
   fflush(stdout);
-  sleep(5);  //espero al vista
+  sleep(2);  //espero al vista
 
   /*Variables for pipes*/
   int pipeMW[CANT_PROCESS][2];  //pipeMW - Master Writes
@@ -85,7 +90,6 @@ int main(int argc, char *argv[]) {
   FD_ZERO(&readfds);
   FD_ZERO(&writefds);
   int max_fd = 0;
-  //fflush(stdout);
 
   for (i = 0; i < CANT_PROCESS; i++) {
     pipe(pipeMW[i]);
@@ -103,6 +107,7 @@ int main(int argc, char *argv[]) {
       char *args[] = {"./slave", NULL};
       execvp(args[0], args);
       perror("exec");
+
       exit(EXIT_FAILURE);
     } else {
       close(pipeMW[i][READ]);
@@ -119,6 +124,7 @@ int main(int argc, char *argv[]) {
     for (c = 0; c < INITIAL_FILES && cant_cnf_asig < argc - 1; c++, cant_cnf_asig++) {
       if (strlen(argv[cant_cnf_asig + 1]) >= 100) {
         perror("Filename too long");
+        failEndVista(shm_ptr, 0, sem_entry, sem_read, shm_name, sem_nameA, sem_nameB);
         exit(EXIT_FAILURE);
       }
       strcpy(aux, argv[cant_cnf_asig + 1]);
@@ -136,14 +142,18 @@ int main(int argc, char *argv[]) {
     for (k = 0; k < CANT_PROCESS && cant_cnf_unsol > 0; k++) {  //unsolve = argc - 1 - asignated
       if (FD_ISSET(pipeMR[k][READ], &readfds)) {
         cant_read = read(pipeMR[k][READ], &line, 255);
+
         if (cant_read == -1) {
-          perror("vista: read");
+          perror("master: read");
+          failEndVista(shm_ptr, current, sem_entry, sem_read, shm_name, sem_nameA, sem_nameB);
           exit(EXIT_FAILURE);
         }
+
         sem_wait(sem_entry);
         strncpy((shm_ptr + current++)->arr, line, cant_read);
-        if (write(output_fd, line, strlen(line)) == -1) {
-          printf("Error write\n");
+        if (write(output_fd, line, cant_read) == -1) {
+          perror("master:Error write");
+          failEndVista(shm_ptr, current, sem_entry, sem_read, shm_name, sem_nameA, sem_nameB);
           exit(EXIT_FAILURE);
         }
         sem_post(sem_read);
@@ -152,10 +162,17 @@ int main(int argc, char *argv[]) {
         solved_queries[k]++;
         if (solved_queries[k] >= INITIAL_FILES && cant_cnf_asig < argc - 1) {
           char aux[100] = {};
+          if (strlen(argv[cant_cnf_asig + 1]) >= 100) {
+            perror("Filename too long");
+            failEndVista(shm_ptr, current, sem_entry, sem_read, shm_name, sem_nameA, sem_nameB);
+            exit(EXIT_FAILURE);
+          }
           strcpy(aux, argv[cant_cnf_asig + 1]);
           strcat(aux, "\n");
           if (write(pipeMW[k][WRITE], aux, strlen(aux)) == -1) {
-            printf("Error write\n");
+            perror("Error write");
+            failEndVista(shm_ptr, current, sem_entry, sem_read, shm_name, sem_nameA, sem_nameB);
+            exit(EXIT_FAILURE);
             exit(EXIT_FAILURE);
           }
           cant_cnf_asig++;
@@ -165,6 +182,7 @@ int main(int argc, char *argv[]) {
     for (i = 0; i < CANT_PROCESS; i++)
       FD_SET(pipeMR[i][READ], &readfds);
   }
+
   close(output_fd);
   sem_wait(sem_entry);
   strncpy((shm_ptr + current++)->arr, "*", 1);
@@ -172,10 +190,12 @@ int main(int argc, char *argv[]) {
   sem_post(sem_entry);
   sleep(1);
   int status;
+
   for (i = 0; i < CANT_PROCESS; i++) {
     close(pipeMW[i][WRITE]);
     close(pipeMR[i][READ]);
   }
+
   for (i = 0; i < CANT_PROCESS; i++)
     waitpid(cpid[i], &status, 0);
 
@@ -188,8 +208,10 @@ int main(int argc, char *argv[]) {
     printf("Error closing semaphore. Exiting...\n");
     exit(EXIT_FAILURE);
   }
+
   sem_unlink(sem_nameA);
   sem_unlink(sem_nameB);
+
   /* remove the mapped shared memory segment from the address space of the process */
   if (munmap(shm_ptr, sizeof(buffer) * MAX_FILES) == -1) {
     perror("munmap: No se pudo desmapear la shared memory");
@@ -204,10 +226,23 @@ int main(int argc, char *argv[]) {
     shm_unlink(shm_name);
     exit(EXIT_FAILURE);
   }
-  // remove the shared memory segment from the file system
+
+  /* remove the shared memory segment from the file system */
   if (shm_unlink(shm_name) == -1) {
     perror("shm_unlink: No se pudo cerrar la shared memory");
     exit(EXIT_FAILURE);
   }
+
   return 0;
+}
+
+void failEndVista(buffer *shm_ptr, int current, sem_t *sem_entry, sem_t *sem_read, const char *shm_name, const char *semA, const char *semB) {
+  sem_wait(sem_entry);
+  strncpy((shm_ptr + current)->arr, "*", 1);
+  sem_post(sem_read);
+  sem_post(sem_entry);
+  sem_unlink(semA);
+  sem_unlink(semB);
+  munmap(shm_ptr, sizeof(buffer) * MAX_FILES);
+  shm_unlink(shm_name);
 }

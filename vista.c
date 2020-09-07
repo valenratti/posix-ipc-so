@@ -18,10 +18,8 @@ typedef struct buffer {
 
 int main(int argc, char *argv[]) {
   char shm_name[NAME_MAX] = {}, sem_entry_name[NAME_MAX] = {}, sem_read_name[NAME_MAX] = {};
+  char line[255];
 
-  char *line = NULL;
-  size_t linecap = 0;
-  ssize_t linelen;
   if (argc > 1) {
     int i;
     for (i = 1; i < 4; i++) {
@@ -34,24 +32,18 @@ int main(int argc, char *argv[]) {
     sprintf(sem_entry_name, "/%s", argv[2]);
     sprintf(sem_read_name, "/%s", argv[3]);
   } else {
-    if ((linelen = getline(&line, &linecap, stdin)) > 0) {
-      char tmp[3][15];
-      char *token;
-      int i;
-      for (token = strtok(line, " "), i = 0; token != NULL; token = strtok(NULL, " "), i++)
-        sprintf(tmp[i], "%s", token);
-      sprintf(shm_name, "%s", tmp[0]);
-      fflush(stdout);
-      sprintf(sem_entry_name, "%s", tmp[1]);
-      fflush(stdout);
-      sprintf(sem_read_name, "%s", tmp[2]);
-      fflush(stdout);
-      free(line);
-    } else {
-      perror("vista: getline:Error al recibir los parametros");
-      free(line);
+    if (read(STDIN_FILENO, line, 255) < 0) {
+      perror("vista: Error en los nombres de SHM y SEM");
       exit(EXIT_FAILURE);
     }
+    char tmp[3][15];
+    char *token;
+    int i;
+    for (token = strtok(line, " "), i = 0; token != NULL; token = strtok(NULL, " "), i++)
+      sprintf(tmp[i], "%s", token);
+    sprintf(shm_name, "%s", tmp[0]);
+    sprintf(sem_entry_name, "%s", tmp[1]);
+    sprintf(sem_read_name, "%s", tmp[2]);
   }
 
   /* open the shared memory segment as if it was a file */
@@ -68,10 +60,6 @@ int main(int argc, char *argv[]) {
     close(shm_fd);
     exit(EXIT_FAILURE);
   }
-
-  /*
-  *  ToDo
-  */
 
   // nombre, crear y que no exista,permisos de RWX,valor iniical del sem
   sem_t *sem_entry = sem_open(sem_entry_name, O_CREAT);
