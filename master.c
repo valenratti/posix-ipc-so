@@ -23,7 +23,7 @@ typedef struct buffer {
   char arr[256 * 6];
 } buffer;
 
-void failEndVista(buffer *shm_ptr, int current, sem_t *sem_entry, sem_t *sem_read, const char *shm_name, const char *semA, const char *semB);
+void failEndVista(buffer *shm_ptr, int current, sem_t *sem_read, const char *shm_name, const char *sem);
 
 int main(int argc, char *argv[]) {
   int cant_cnf_asig, i, c;
@@ -31,6 +31,10 @@ int main(int argc, char *argv[]) {
 
   if (argc <= 1) {
     printf("Error, debe pasar unicamente el path de la carpeta contenedora de los archivos\n");
+    exit(1);
+  }
+  if (argc - 1 > MAX_FILES) {
+    printf("Error, se pueden analizar hasta 100 archivos\n");
     exit(1);
   }
   char outputfile[] = "output.txt";
@@ -60,22 +64,16 @@ int main(int argc, char *argv[]) {
 
   ftruncate(shm_fd, sizeof(buffer) * MAX_FILES);
 
-  const char *sem_nameA = "/sem-entry";  //Para entrar a la zona critica
-  const char *sem_nameB = "/sem-read";   //Para que vista sepa si hay para leer
+  const char *sem_name = "/sem";  //Para que vista sepa si hay para leer
 
   // nombre, crear y que no exista, permisos de RWX, valor iniical del sem
-  sem_t *sem_entry = sem_open(sem_nameA, O_CREAT | O_EXCL, S_IRUSR | S_IWUSR, 1);
-  if (sem_entry == SEM_FAILED) {
-    printf("Failed to create the semaphore empty. Exiting...\n");
-    exit(1);
-  }
-  sem_t *sem_read = sem_open(sem_nameB, O_CREAT | O_EXCL, S_IRUSR | S_IWUSR, 0);
+  sem_t *sem_read = sem_open(sem_name, O_CREAT | O_EXCL, S_IRUSR | S_IWUSR, 0);
   if (sem_read == SEM_FAILED) {
-    printf("Failed to create the semaphore full. Exiting...\n");
+    printf("master: Failed to create the semaphore full. Exiting...\n");
     exit(1);
   }
 
-  printf("%s %s %s", shm_name, sem_nameA, sem_nameB);
+  printf("%s %s ", shm_name, sem_name);
   fflush(stdout);
   sleep(2);  //waiting for vista
 
@@ -86,32 +84,45 @@ int main(int argc, char *argv[]) {
   int solved_queries[CANT_PROCESS] = {0};
 
   /*Variables for select*/
-  fd_set readfds, writefds;
+  fd_set readfds;
   FD_ZERO(&readfds);
-  FD_ZERO(&writefds);
   int max_fd = 0;
 
   for (i = 0; i < CANT_PROCESS; i++) {
-    pipe(pipeMW[i]);
-    pipe(pipeMR[i]);
+    if (pipe(pipeMW[i]) < 0 || pipe(pipeMR[i]) < 0) {
+      failEndVista(shm_ptr, 0, sem_read, shm_name, sem_name);
+      perror("pipe");
+      exit(EXIT_FAILURE);
+    }
+
     cpid[i] = fork();
     if (cpid[i] == -1) {
       perror("fork");
+      failEndVista(shm_ptr, 0, sem_read, shm_name, sem_name);
       exit(EXIT_FAILURE);
     }
+
     if (cpid[i] == 0) {
-      close(pipeMW[i][WRITE]);
-      close(pipeMR[i][READ]);
-      dup2(pipeMW[i][READ], STDIN_FILENO);    //El esclavo le llega por estandar input lo que escriben en el FD
-      dup2(pipeMR[i][WRITE], STDOUT_FILENO);  //Salida estandar del esclavo se redirecciona al FD
+      if (close(pipeMW[i][WRITE]) < 0 || close(pipeMR[i][READ]) < 0) {
+        perror("close pipe");
+        exit(EXIT_FAILURE);
+      }
+
+      if (dup2(pipeMW[i][READ], STDIN_FILENO) < 0 || dup2(pipeMR[i][WRITE], STDOUT_FILENO) < 0) {
+        perror("dup");
+        exit(EXIT_FAILURE);
+      }
+
       char *args[] = {"./slave", NULL};
       execvp(args[0], args);
       perror("exec");
-
       exit(EXIT_FAILURE);
     } else {
-      close(pipeMW[i][READ]);
-      close(pipeMR[i][WRITE]);
+      if (close(pipeMW[i][READ]) < 0 || close(pipeMR[i][WRITE]) < 0) {
+        perror("close pipe");
+        failEndVista(shm_ptr, 0, sem_read, shm_name, sem_name);
+        exit(EXIT_FAILURE);
+      }
       if (pipeMR[i][READ] > max_fd)
         max_fd = pipeMR[i][READ];
       FD_SET(pipeMR[i][READ], &readfds);
@@ -124,7 +135,7 @@ int main(int argc, char *argv[]) {
     for (c = 0; c < INITIAL_FILES && cant_cnf_asig < argc - 1; c++, cant_cnf_asig++) {
       if (strlen(argv[cant_cnf_asig + 1]) >= 100) {
         perror("Filename too long");
-        failEndVista(shm_ptr, 0, sem_entry, sem_read, shm_name, sem_nameA, sem_nameB);
+        failEndVista(shm_ptr, 0, sem_read, shm_name, sem_name);
         exit(EXIT_FAILURE);
       }
       strcpy(aux, argv[cant_cnf_asig + 1]);
@@ -145,40 +156,42 @@ int main(int argc, char *argv[]) {
 
         if (cant_read == -1) {
           perror("master: read");
-          failEndVista(shm_ptr, current, sem_entry, sem_read, shm_name, sem_nameA, sem_nameB);
+          failEndVista(shm_ptr, current, sem_read, shm_name, sem_name);
           exit(EXIT_FAILURE);
         }
 
-        sem_wait(sem_entry);
         strncpy((shm_ptr + current++)->arr, line, cant_read);
-        
+
         if (write(output_fd, line, cant_read) == -1) {
           perror("master:Error write");
-          failEndVista(shm_ptr, current, sem_entry, sem_read, shm_name, sem_nameA, sem_nameB);
+          failEndVista(shm_ptr, current, sem_read, shm_name, sem_name);
           exit(EXIT_FAILURE);
         }
 
-        sem_post(sem_read);
-        sem_post(sem_entry);
+        if (sem_post(sem_read) < 0) {
+          perror("master:sem post");
+          failEndVista(shm_ptr, current, sem_read, shm_name, sem_name);
+          exit(EXIT_FAILURE);
+        }
+
         cant_cnf_unsol--;
         solved_queries[k]++;
 
         if (solved_queries[k] >= INITIAL_FILES && cant_cnf_asig < argc - 1) {
           char aux[100] = {};
-          
+
           if (strlen(argv[cant_cnf_asig + 1]) >= 100) {
             perror("Filename too long");
-            failEndVista(shm_ptr, current, sem_entry, sem_read, shm_name, sem_nameA, sem_nameB);
+            failEndVista(shm_ptr, current, sem_read, shm_name, sem_name);
             exit(EXIT_FAILURE);
           }
 
           strcpy(aux, argv[cant_cnf_asig + 1]);
           strcat(aux, "\n");
-          
+
           if (write(pipeMW[k][WRITE], aux, strlen(aux)) == -1) {
             perror("Error write");
-            failEndVista(shm_ptr, current, sem_entry, sem_read, shm_name, sem_nameA, sem_nameB);
-            exit(EXIT_FAILURE);
+            failEndVista(shm_ptr, current, sem_read, shm_name, sem_name);
             exit(EXIT_FAILURE);
           }
 
@@ -191,34 +204,39 @@ int main(int argc, char *argv[]) {
       FD_SET(pipeMR[i][READ], &readfds);
   }
 
-  close(output_fd);
-  sem_wait(sem_entry);
+  if (close(output_fd) < 0) {
+    perror("close");
+    failEndVista(shm_ptr, current, sem_read, shm_name, sem_name);
+    exit(EXIT_FAILURE);
+  }
   strncpy((shm_ptr + current++)->arr, "*", 1);
-  sem_post(sem_read);
-  sem_post(sem_entry);
+  if (sem_post(sem_read) < 0) {
+    perror("master:sem post");
+    failEndVista(shm_ptr, current, sem_read, shm_name, sem_name);
+    exit(EXIT_FAILURE);
+  }
   sleep(1);
 
   for (i = 0; i < CANT_PROCESS; i++) {
-    close(pipeMW[i][WRITE]);
-    close(pipeMR[i][READ]);
+    if (close(pipeMW[i][WRITE]) < 0 || close(pipeMR[i][READ]) < 0) {
+      perror("pipe close");
+      exit(EXIT_FAILURE);
+    }
   }
 
   int status;
   for (i = 0; i < CANT_PROCESS; i++)
     waitpid(cpid[i], &status, 0);
 
-  if (sem_close(sem_entry) < 0) {
-    printf("Error closing semaphore. Exiting...\n");
-    exit(EXIT_FAILURE);
-  }
-
   if (sem_close(sem_read) < 0) {
-    printf("Error closing semaphore. Exiting...\n");
+    perror("SEM close");
     exit(EXIT_FAILURE);
   }
 
-  sem_unlink(sem_nameA);
-  sem_unlink(sem_nameB);
+  if (sem_unlink(sem_name) < 0) {
+    perror("SEM Unlink");
+    exit(EXIT_FAILURE);
+  }
 
   /* remove the mapped shared memory segment from the address space of the process */
   if (munmap(shm_ptr, sizeof(buffer) * MAX_FILES) == -1) {
@@ -245,13 +263,10 @@ int main(int argc, char *argv[]) {
 }
 
 /*Function to make vista return and close semaphores and shared memory in case of error*/
-void failEndVista(buffer *shm_ptr, int current, sem_t *sem_entry, sem_t *sem_read, const char *shm_name, const char *semA, const char *semB) {
-  sem_wait(sem_entry);
+void failEndVista(buffer *shm_ptr, int current, sem_t *sem_read, const char *shm_name, const char *sem) {
   strncpy((shm_ptr + current)->arr, "*", 1);
   sem_post(sem_read);
-  sem_post(sem_entry);
-  sem_unlink(semA);
-  sem_unlink(semB);
+  sem_unlink(sem);
   munmap(shm_ptr, sizeof(buffer) * MAX_FILES);
   shm_unlink(shm_name);
 }

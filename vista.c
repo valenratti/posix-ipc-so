@@ -17,36 +17,33 @@ typedef struct buffer {
 } buffer;
 
 int main(int argc, char *argv[]) {
-  char shm_name[NAME_MAX] = {}, sem_entry_name[NAME_MAX] = {}, sem_read_name[NAME_MAX] = {};
+  char shm_name[NAME_MAX] = {}, sem_name[NAME_MAX] = {};
   char line[255];
 
   if (argc > 1) {
     int i;
-    for (i = 1; i < 4; i++) {
+    for (i = 1; i < 3; i++) {
       if (strlen(argv[i]) > NAME_MAX) {
         perror("vista: los directorios de SHM o SEM no pueden tener mas de 255 carac.");
         exit(EXIT_FAILURE);
       }
     }
-
     sprintf(shm_name, "/%s", argv[1]);
-    sprintf(sem_entry_name, "/%s", argv[2]);
-    sprintf(sem_read_name, "/%s", argv[3]);
+    sprintf(sem_name, "/%s", argv[2]);
   } else {
     if (read(STDIN_FILENO, line, 255) < 0) {
       perror("vista: Error en los nombres de SHM y SEM");
       exit(EXIT_FAILURE);
     }
 
-    char tmp[3][15];
+    char tmp[2][15];
     char *token;
     int i;
     for (token = strtok(line, " "), i = 0; token != NULL; token = strtok(NULL, " "), i++)
       sprintf(tmp[i], "%s", token);
 
     sprintf(shm_name, "%s", tmp[0]);
-    sprintf(sem_entry_name, "%s", tmp[1]);
-    sprintf(sem_read_name, "%s", tmp[2]);
+    sprintf(sem_name, "%s", tmp[1]);
   }
 
   /* open the shared memory segment as if it was a file */
@@ -64,15 +61,9 @@ int main(int argc, char *argv[]) {
     exit(EXIT_FAILURE);
   }
 
-  // nombre, crear y que no exista, permisos de RWX,valor inicial del sem
-  sem_t *sem_entry = sem_open(sem_entry_name, O_CREAT);
-  if (sem_entry == SEM_FAILED) {
-    printf("Failed to create the semaphore empty. Exiting...\n");
-    exit(EXIT_FAILURE);
-  }
-  sem_t *sem_read = sem_open(sem_read_name, O_CREAT);
+  sem_t *sem_read = sem_open(sem_name, O_CREAT);
   if (sem_read == SEM_FAILED) {
-    printf("Failed to create the semaphore full. Exiting...\n");
+    printf("vista:Failed to create the semaphore full. Exiting...\n");
     exit(EXIT_FAILURE);
   }
 
@@ -81,21 +72,16 @@ int main(int argc, char *argv[]) {
   char *aux;
 
   while (finish_vista) {
-    sem_wait(sem_read);
-    sem_wait(sem_entry);
-    
+    if (sem_wait(sem_read) < 0) {
+      perror("vista:sem wait");
+      exit(EXIT_FAILURE);
+    }
+
     aux = (shm_ptr + current++)->arr;
     if (aux[0] == '*')
       finish_vista = 0;
     else
       printf("%s\n", aux);
-
-    sem_post(sem_entry);
-  }
-
-  if (sem_close(sem_entry) < 0) {
-    printf("Error closing semaphore. Exiting...\n");
-    exit(EXIT_FAILURE);
   }
 
   if (sem_close(sem_read) < 0) {
